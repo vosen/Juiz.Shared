@@ -3,6 +3,7 @@
 module FunkSVD =
 
     open System.Collections.Generic
+    open System.Threading.Tasks
     type pair<'a,'b> = System.Collections.Generic.KeyValuePair<'a,'b>
 
     [<assembly: System.Runtime.CompilerServices.InternalsVisibleTo("FunkSVD.Tests")>]
@@ -39,6 +40,14 @@ module FunkSVD =
                 this.[key] <- setFunc tempValue
             else
                 this.[key] <- addFunc()
+
+    type FactorizationProgress(count: int) =
+        let mutable iterations = 0
+        let progress = new Event<int * int>()
+        member this.Progress = progress.Publish
+        member this.PostProgress() =
+            iterations <- iterations + 1
+            progress.Trigger (iterations, count)
 
     let initializeFeatures titleCount userCount featCount =
         let titleFeatures = Array.init titleCount (fun idx -> Array.init featCount (fun _ -> defaultFeature))
@@ -124,13 +133,17 @@ module FunkSVD =
             let cache = caches.[i]
             caches.[i].Estimate <-  predictRating cache.Estimate movieFeatures.[cache.Rating.Title].[feature] userFeatures.[cache.Rating.User].[feature]
 
-    let build (baseline : Rating array -> Estimates) (ratings : Rating array) features =
+    let buildAsync (baseline : Rating array -> Estimates) (ratings : Rating array) features =
         let estimates = baseline ratings
         let movieFeatures, userFeatures = initializeFeatures estimates.MovieCount estimates.UserCount features
-        let mutable cache = (ratings, estimates.Predicted) ||> Array.map2 (fun rating estimate -> RatingCache(rating, estimate))
-        for i in 0..(features-1) do
-            trainFeature movieFeatures userFeatures cache features i
-        (movieFeatures, userFeatures)
+        let cache = (ratings, estimates.Predicted) ||> Array.map2 (fun rating estimate -> RatingCache(rating, estimate)) |> ref
+        let progressMeter = FactorizationProgress(features)
+        let task = Task.Factory.StartNew((fun _ ->
+            for i in 0..(features-1) do
+                trainFeature movieFeatures userFeatures !cache features i
+                progressMeter.PostProgress()
+            (movieFeatures, userFeatures)))
+        (task, progressMeter)
 
     let saveArray (conv: 'a -> string) (data : 'a array array) =
         data |> Array.map (fun line -> String.concat "\t" (line |> Array.map conv)) |> String.concat System.Environment.NewLine
