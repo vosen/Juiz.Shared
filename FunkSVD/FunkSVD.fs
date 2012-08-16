@@ -49,6 +49,20 @@ module FunkSVD =
             iterations <- iterations + 1
             progress.Trigger (iterations, count)
 
+    let components (ratings : Rating array) =
+        let graph = QuickGraph.UndirectedGraph(false)
+        let makeEdge(source : int, target : int) = 
+            { new QuickGraph.IEdge<int> with
+                    member this.Source = source
+                    member this.Target = target }
+        for rating in ratings do
+            graph.AddVertex(rating.User) |> ignore
+            graph.AddVertex(ratings.Length + rating.Title) |> ignore
+            graph.AddEdge(makeEdge(rating.User, ratings.Length + rating.Title)) |> ignore
+        let computation = QuickGraph.Algorithms.ConnectedComponents.ConnectedComponentsAlgorithm(graph)
+        computation.Compute()
+        (computation.Components, computation.ComponentCount)
+
     let initializeFeatures titleCount userCount featCount =
         let titleFeatures = Array.init titleCount (fun idx -> Array.init featCount (fun _ -> defaultFeature))
         let userFeatures = Array.init userCount (fun idx -> Array.init featCount (fun _ -> defaultFeature))
