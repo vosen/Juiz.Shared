@@ -18,9 +18,9 @@ module FunkSVD =
 
     type Rating =
         struct
-            val Title : int
-            val User : int
-            val Score : float
+            val mutable Title : int
+            val mutable User : int
+            val mutable Score : float
             new(title, user, score) = { Title = title; User = user; Score = score }
         end
 
