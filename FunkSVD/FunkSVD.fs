@@ -113,7 +113,7 @@ module FunkSVD =
         clamp (score + movieFeature * userFeature)
 
     let predictRatingWithKnown score (movieFeatures : float array) userFeature features feature =
-        let mutable predicted = score + movieFeatures.[feature] * userFeature
+        let mutable predicted = clamp(score + movieFeatures.[feature] * userFeature)
         // add trailing
         for i = feature + 1 to features - 1 do
             predicted <- clamp (predicted + movieFeatures.[i] * defaultFeature)
@@ -198,13 +198,6 @@ module FunkSVD =
 
 
     type AveragedModel(avgs: float[], data: float[][]) =
-
-        let predictRatingWithKnown score (movieFeatures : float array) userFeature features feature =
-            let mutable predicted = score + movieFeatures.[feature] * userFeature
-            // add trailing
-            for i = feature + 1 to features - 1 do
-                predicted <- clamp (predicted + movieFeatures.[i] * defaultFeature)
-            predicted
 
         member this.Features = data.[0].Length
 
