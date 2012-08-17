@@ -49,20 +49,6 @@ module FunkSVD =
             iterations <- iterations + 1
             progress.Trigger (iterations, count)
 
-    let components (ratings : Rating array) =
-        let graph = QuickGraph.UndirectedGraph(false)
-        let makeEdge(source : int, target : int) = 
-            { new QuickGraph.IEdge<int> with
-                    member this.Source = source
-                    member this.Target = target }
-        for rating in ratings do
-            graph.AddVertex(rating.User) |> ignore
-            graph.AddVertex(ratings.Length + rating.Title) |> ignore
-            graph.AddEdge(makeEdge(rating.User, ratings.Length + rating.Title)) |> ignore
-        let computation = QuickGraph.Algorithms.ConnectedComponents.ConnectedComponentsAlgorithm(graph)
-        computation.Compute()
-        (computation.Components, computation.ComponentCount)
-
     let initializeFeatures titleCount userCount featCount =
         let titleFeatures = Array.init titleCount (fun idx -> Array.init featCount (fun _ -> defaultFeature))
         let userFeatures = Array.init userCount (fun idx -> Array.init featCount (fun _ -> defaultFeature))
@@ -125,6 +111,13 @@ module FunkSVD =
 
     let predictRating score movieFeature userFeature =
         clamp (score + movieFeature * userFeature)
+
+    let predictRatingWithKnown score (movieFeatures : float array) userFeature features feature =
+        let mutable predicted = score + movieFeatures.[feature] * userFeature
+        // add trailing
+        for i = feature + 1 to features - 1 do
+            predicted <- clamp (predicted + movieFeatures.[i] * defaultFeature)
+        predicted
 
     let trainFeature (movieFeatures : float[][]) (userFeatures : float[][]) (caches : RatingCache array) features feature =
         let mutable epoch = 0
@@ -191,7 +184,7 @@ module FunkSVD =
                     for (id, score) in ratings do
                         let movieFeature = data.[id].[feature]
                         let userFeature = userFeatures.[feature]
-                        let predicted = predictRatingWithTrailing estimates.[id] movieFeature userFeature this.Features feature
+                        let predicted = predictRatingWithKnown estimates.[id] data.[id] userFeature this.Features feature
                         let error = score - predicted
                         squaredError <- squaredError + (error * error)
                         userFeatures.[feature] <- userFeature + (learningRate * (error * movieFeature - regularization * userFeature))
@@ -205,6 +198,13 @@ module FunkSVD =
 
 
     type AveragedModel(avgs: float[], data: float[][]) =
+
+        let predictRatingWithKnown score (movieFeatures : float array) userFeature features feature =
+            let mutable predicted = score + movieFeatures.[feature] * userFeature
+            // add trailing
+            for i = feature + 1 to features - 1 do
+                predicted <- clamp (predicted + movieFeatures.[i] * defaultFeature)
+            predicted
 
         member this.Features = data.[0].Length
 
@@ -223,7 +223,7 @@ module FunkSVD =
                     for rating in ratings do
                         let movieFeature = data.[rating.Key].[feature]
                         let userFeature = userFeatures.[feature]
-                        let predicted = predictRatingWithTrailing estimates.[rating.Key] movieFeature userFeature this.Features feature
+                        let predicted = predictRatingWithKnown estimates.[rating.Key] data.[rating.Key] userFeature this.Features feature
                         let error = rating.Value - predicted
                         squaredError <- squaredError + (error * error)
                         userFeatures.[feature] <- userFeature + (learningRate * (error * movieFeature - regularization * userFeature))
