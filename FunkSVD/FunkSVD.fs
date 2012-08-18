@@ -112,13 +112,6 @@ module FunkSVD =
     let predictRating score movieFeature userFeature =
         clamp (score + movieFeature * userFeature)
 
-    let predictRatingWithKnown score (movieFeatures : float array) (userFeatures : float array) features feature =
-        let mutable predicted = clamp(score + movieFeatures.[feature] * userFeatures.[feature])
-        // add trailing
-        for i = feature + 1 to features - 1 do
-            predicted <- clamp (predicted + movieFeatures.[i] * userFeatures.[i])
-        predicted
-
     let trainFeature (movieFeatures : float[][]) (userFeatures : float[][]) (caches : RatingCache array) features feature =
         let mutable epoch = 0
         let mutable rmse, lastRmse = (0.0, infinity)
@@ -149,7 +142,8 @@ module FunkSVD =
             for i in 0..(features-1) do
                 trainFeature movieFeatures userFeatures !cache features i
                 progressMeter.PostProgress()
-            (movieFeatures, userFeatures)))
+            let featureAvgs = userFeatures |> Array.reduce (Array.map2 (+)) |> Array.map (fun x -> x / float(userFeatures.Length))
+            (movieFeatures, featureAvgs)))
         (task, progressMeter)
 
     let saveArray (conv: 'a -> string) (data : 'a array array) =
@@ -161,70 +155,61 @@ module FunkSVD =
     let clampedDot start x y =
         Array.fold2 (fun sum a b -> clamp(sum + a*b)) start x y
 
-    type Model(data : float[][]) =
+    type Model(data : float[][], featureAvgs: float array) =
 
-        static member simplePredictBaseline (avgs : float array) (ratings : (int * float) array) =
-            let deviation = userDeviation avgs ratings
+        static member predictRatingWithKnown score (movieFeatures : float array) (userFeatures : float array) features feature =
+            let mutable predicted = clamp(score + movieFeatures.[feature] * userFeatures.[feature])
+            // add trailing
+            for i = feature + 1 to features - 1 do
+                predicted <- clamp (predicted + movieFeatures.[i] * userFeatures.[i])
+            predicted
+
+        static member trainFeature (data : float[][]) (userFeatures : float[]) (ratings : pair<int,float> array) (estimates : float array) features feature =
+            for epoch = 0 to (epochs - 1) do
+                for rating in ratings do
+                    let movieFeature = data.[rating.Key].[feature]
+                    let userFeature = userFeatures.[feature]
+                    let predicted = Model.predictRatingWithKnown estimates.[rating.Key] data.[rating.Key] userFeatures features feature
+                    let error = rating.Value - predicted
+                    userFeatures.[feature] <- userFeature + (learningRate * (error * movieFeature - regularization * userFeature))
+                // update estimates
+            for rating in ratings do
+                estimates.[rating.Key] <- predictRating estimates.[rating.Key] data.[rating.Key].[feature] userFeatures.[feature]
+
+
+        static member userDeviation (movieAverages : float array) (ratings :  IList<pair<int, float>>) = 
+            (ratings |> Seq.sumBy (fun rating -> movieAverages.[rating.Key] - float(rating.Value))) / float(ratings.Count)
+
+        static member simplePredictBaseline (avgs : float array) (ratings : pair<int, float> array) =
+            let deviation = Model.userDeviation avgs ratings
             avgs |> Array.map ((+) deviation)
 
-        static member averagesBaseline (avgs : float array) (ratings : (int * float) array) =
+        static member averagesBaseline (avgs : 'a array) ratings =
             avgs |> Array.copy
 
         member this.Features = data.[0].Length
 
-        member this.PredictSingle (baseline : (int * float) array -> float array) (ratings : (int * float) array) target =
-            let userFeatures = Array.init this.Features (fun _ -> defaultFeature)
+        member this.PredictSingle (baseline : pair<int, float> array -> float array) (ratings : pair<int, float> array) target =
+            let userFeatures = Array.copy featureAvgs
             let estimates = baseline ratings
             for feature in 0..(this.Features - 1) do
-                let mutable epoch = 0
-                let mutable rmse, lastRmse = (0.0, infinity)
-                while (epoch < epochs) || (rmse <= lastRmse - minimumPredictImprovement) do
-                    lastRmse <- rmse
-                    let mutable squaredError = 0.0
-                    for (id, score) in ratings do
-                        let movieFeature = data.[id].[feature]
-                        let userFeature = userFeatures.[feature]
-                        let predicted = predictRatingWithKnown estimates.[id] data.[id] userFeatures this.Features feature
-                        let error = score - predicted
-                        squaredError <- squaredError + (error * error)
-                        userFeatures.[feature] <- userFeature + (learningRate * (error * movieFeature - regularization * userFeature))
-                    rmse <- sqrt(squaredError / float(ratings.Length))
-                    epoch <- epoch + 1
-                // update estimates
-                for (id, _) in ratings do
-                    estimates.[id] <- predictRating estimates.[id] data.[id].[feature] userFeatures.[feature]
+                Model.trainFeature data userFeatures ratings estimates this.Features feature
             // userFeatures is now features vector for this user
             clampedDot estimates.[target] data.[target] userFeatures
 
 
-    type AveragedModel(avgs: float[], data: float[][]) =
+    type AveragedModel(data: float[][], userFeatAvgs : float array, movieAvgs : float array) =
 
         member this.Features = data.[0].Length
 
         member this.PredictUnknown(ratings : pair<int, float> array) =
-            let userFeatures = Array.init this.Features (fun _ -> defaultFeature)
-            let estimates = Array.copy avgs
+            let userFeatures = Array.copy userFeatAvgs
+            let estimates = Array.copy movieAvgs
             let seen = System.Collections.Generic.HashSet()
             for rating in ratings do
                 seen.Add(rating.Key) |> ignore
             for feature in 0..(this.Features - 1) do
-                let mutable epoch = 0
-                let mutable rmse, lastRmse = (0.0, infinity)
-                while (epoch < epochs) do
-                    lastRmse <- rmse
-                    let mutable squaredError = 0.0
-                    for rating in ratings do
-                        let movieFeature = data.[rating.Key].[feature]
-                        let userFeature = userFeatures.[feature]
-                        let predicted = predictRatingWithKnown estimates.[rating.Key] data.[rating.Key] userFeatures this.Features feature
-                        let error = rating.Value - predicted
-                        squaredError <- squaredError + (error * error)
-                        userFeatures.[feature] <- userFeature + (learningRate * (error * movieFeature - regularization * userFeature))
-                    rmse <- sqrt(squaredError / float(ratings.Length))
-                    epoch <- epoch + 1
-                // update estimates
-                for rating in ratings do
-                    estimates.[rating.Key] <- predictRating estimates.[rating.Key] data.[rating.Key].[feature] userFeatures.[feature]
+                Model.trainFeature data userFeatures ratings estimates this.Features feature
             // userFeatures is now features vector for this user
             for i = 0 to (estimates.Length - 1) do
                 if seen.Contains(i) then
@@ -235,12 +220,13 @@ module FunkSVD =
 
     type TitleRecommender(model : AveragedModel, titleToDocumentMapping: int[], documentToTitleMapping : int[]) =
 
-        static member Load (avgPath : string) (featuresPath : string) (titleMap : string) (docMap : string) =
+        static member Load (featuresPath : string) (userFeatAvgPath : string) (movieAvgPath : string) (titleMap : string) (docMap : string) =
             let features = loadArray float (System.IO.File.ReadAllText(featuresPath))
-            let avgs = (loadArray float (System.IO.File.ReadAllText(avgPath))).[0]
+            let movieAvgs = (loadArray float (System.IO.File.ReadAllText(movieAvgPath))).[0]
+            let userFeats = (loadArray float (System.IO.File.ReadAllText(userFeatAvgPath))).[0]
             let titleMapping = (loadArray int (System.IO.File.ReadAllText(titleMap))).[0]
             let documentMapping = (loadArray int (System.IO.File.ReadAllText(docMap))).[0]
-            TitleRecommender(AveragedModel(avgs, features), titleMapping, documentMapping)
+            TitleRecommender(AveragedModel(features, userFeats, movieAvgs), titleMapping, documentMapping)
 
         member this.PredictUnknown(ratings : (int * int) array) =
             ratings
