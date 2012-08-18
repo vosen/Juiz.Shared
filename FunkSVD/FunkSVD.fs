@@ -112,11 +112,11 @@ module FunkSVD =
     let predictRating score movieFeature userFeature =
         clamp (score + movieFeature * userFeature)
 
-    let predictRatingWithKnown score (movieFeatures : float array) userFeature features feature =
-        let mutable predicted = clamp(score + movieFeatures.[feature] * userFeature)
+    let predictRatingWithKnown score (movieFeatures : float array) (userFeatures : float array) features feature =
+        let mutable predicted = clamp(score + movieFeatures.[feature] * userFeatures.[feature])
         // add trailing
         for i = feature + 1 to features - 1 do
-            predicted <- clamp (predicted + movieFeatures.[i] * defaultFeature)
+            predicted <- clamp (predicted + movieFeatures.[i] * userFeatures.[i])
         predicted
 
     let trainFeature (movieFeatures : float[][]) (userFeatures : float[][]) (caches : RatingCache array) features feature =
@@ -184,7 +184,7 @@ module FunkSVD =
                     for (id, score) in ratings do
                         let movieFeature = data.[id].[feature]
                         let userFeature = userFeatures.[feature]
-                        let predicted = predictRatingWithKnown estimates.[id] data.[id] userFeature this.Features feature
+                        let predicted = predictRatingWithKnown estimates.[id] data.[id] userFeatures this.Features feature
                         let error = score - predicted
                         squaredError <- squaredError + (error * error)
                         userFeatures.[feature] <- userFeature + (learningRate * (error * movieFeature - regularization * userFeature))
@@ -210,13 +210,13 @@ module FunkSVD =
             for feature in 0..(this.Features - 1) do
                 let mutable epoch = 0
                 let mutable rmse, lastRmse = (0.0, infinity)
-                while (epoch < epochs) || (rmse <= lastRmse - minimumPredictImprovement) do
+                while (epoch < epochs) do
                     lastRmse <- rmse
                     let mutable squaredError = 0.0
                     for rating in ratings do
                         let movieFeature = data.[rating.Key].[feature]
                         let userFeature = userFeatures.[feature]
-                        let predicted = predictRatingWithKnown estimates.[rating.Key] data.[rating.Key] userFeature this.Features feature
+                        let predicted = predictRatingWithKnown estimates.[rating.Key] data.[rating.Key] userFeatures this.Features feature
                         let error = rating.Value - predicted
                         squaredError <- squaredError + (error * error)
                         userFeatures.[feature] <- userFeature + (learningRate * (error * movieFeature - regularization * userFeature))
