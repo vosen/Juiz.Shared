@@ -228,16 +228,16 @@ module FunkSVD =
             let documentMapping = (loadArray int (System.IO.File.ReadAllText(docMap))).[0]
             TitleRecommender(AveragedModel(features, userFeats, movieAvgs), titleMapping, documentMapping)
 
-        member this.PredictUnknown(ratings : (int * int) array) =
+        member this.PredictUnknown(ratings : pair<int, int> array) =
             ratings
             // filter out incorrect ids
-            |> Array.filter (fun (id, rating) -> this.IsCorrectId id)
+            |> Array.filter (fun kvp -> this.IsCorrectId kvp.Key)
             // map ids to correct ones and normalize scores
-            |> Array.map (fun (id, rating) -> pair(titleToDocumentMapping.[id], float(rating)))
+            |> Array.map (fun kvp -> pair(titleToDocumentMapping.[kvp.Key], float(kvp.Value)))
             // send to recommender
             |> model.PredictUnknown
             // denormalize ids and scores back
-            |> Array.mapi (fun docId rating -> (documentToTitleMapping.[docId], rating))
+            |> Array.mapi (fun docId rating -> pair(documentToTitleMapping.[docId], rating))
 
         member private this.IsCorrectId id =
             id >= 0 && id < titleToDocumentMapping.Length && titleToDocumentMapping.[id] >= 0
