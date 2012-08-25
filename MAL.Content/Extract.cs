@@ -164,7 +164,7 @@ namespace Vosen.MAL.Content
             return new AnimelistResult() { Response = parseResult.Item1 };
         }
 
-        public static AnimelistResult DownloadAlldAnime(string name)
+        public static AnimelistResult DownloadAllAnime(string name)
         {
             string site= GetStringFrom("http://myanimelist.net/animelist/" + name + "&status=7");
             var ratingTuple = ExtractionCore(site);
