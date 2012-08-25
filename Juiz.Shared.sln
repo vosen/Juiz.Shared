@@ -10,6 +10,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".nuget", ".nuget", "{1A1096
 		.nuget\NuGet.targets = .nuget\NuGet.targets
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MAL.Content", "MAL.Content\MAL.Content.csproj", "{0AF0124F-6948-482C-BFCB-6097BD8291FC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,6 +22,10 @@ Global
 		{DECB42BE-1D4E-4BC5-BC64-02C3E167C02A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{DECB42BE-1D4E-4BC5-BC64-02C3E167C02A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{DECB42BE-1D4E-4BC5-BC64-02C3E167C02A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0AF0124F-6948-482C-BFCB-6097BD8291FC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0AF0124F-6948-482C-BFCB-6097BD8291FC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0AF0124F-6948-482C-BFCB-6097BD8291FC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0AF0124F-6948-482C-BFCB-6097BD8291FC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
