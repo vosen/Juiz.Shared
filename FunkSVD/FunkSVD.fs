@@ -11,10 +11,10 @@ module FunkSVD =
 
     let defaultFeature = 0.1
     let learningRate = 0.001
-    let epochs = 75
+    let epochs = 100
     let regularization = 0.015
     let minimumImprovement = 0.000001
-    let minimumPredictImprovement = 0.001
+    let minimumPredictImprovement = 0.0001
 
     type Rating =
         struct
@@ -147,8 +147,8 @@ module FunkSVD =
         let progressMeter = FactorizationProgress(epochs)
         let task = Task.Factory.StartNew((fun _ ->
             let mutable epoch = 0
-            let mutable rmse, lastRmse = (0.0, infinity)
-            while (epoch < epochs) && (rmse <= lastRmse - minimumImprovement) do
+            let mutable rmse, lastRmse = (infinity, infinity)
+            while (epoch < 200) && (rmse <= lastRmse - minimumImprovement) do
                 lastRmse <- rmse
                 let mutable squaredError = 0.0
                 for cache in caches do
@@ -161,6 +161,7 @@ module FunkSVD =
                         movieFeatures.[cache.Rating.Title].[feature] <- movieFeature + (learningRate * (error * userFeature - regularization * movieFeature))
                         userFeatures.[cache.Rating.User].[feature] <- userFeature + (learningRate * (error * movieFeature - regularization * userFeature))
                 rmse <- sqrt(squaredError / float(caches.Length))
+                printfn "epoch: %d, rmse: %f" epoch rmse
                 epoch <- epoch + 1
                 progressMeter.PostProgress()
             let featureAvgs = userFeatures |> Array.reduce (Array.map2 (+)) |> Array.map (fun x -> x / float(userFeatures.Length))
@@ -214,15 +215,22 @@ module FunkSVD =
         member this.PredictSingle (baseline : pair<int, float> array -> float array) (ratings : pair<int, float> array) target =
             let userFeatures = Array.copy featureAvgs
             let estimates = baseline ratings
-            for epoch = 0 to (epochs - 1) do
-                shuffle ratings
+            let mutable epoch = 0
+            let mutable rmse, lastRmse = (infinity, infinity)
+            while (epoch < 75) do
+                lastRmse <- rmse
+                let mutable squaredError = 0.0
                 for rating in ratings do
                     let predicted = predictRatingWithKnown estimates.[rating.Key] data.[rating.Key] userFeatures this.Features 0
                     let error = rating.Value - predicted
+                    squaredError <- squaredError + (error * error)
                     for feature in 0..(this.Features - 1) do
                         let movieFeature = data.[rating.Key].[feature]
                         let userFeature = userFeatures.[feature]
                         userFeatures.[feature] <- userFeature + (learningRate * (error * movieFeature - regularization * userFeature))
+                rmse <- sqrt(squaredError / float(ratings.Length))
+                printfn "[predict] epoch: %d, rmse: %f" epoch rmse
+                epoch <- epoch + 1
             // userFeatures is now features vector for this user
             clampedDot estimates.[target] data.[target] userFeatures
 
