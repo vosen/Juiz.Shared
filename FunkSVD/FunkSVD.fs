@@ -192,8 +192,14 @@ module FunkSVD =
         member this.PredictSingle (baseline : pair<int, float> array -> float array) (ratings : pair<int, float> array) target =
             let userFeatures = Array.copy featureAvgs
             let estimates = baseline ratings
-            for feature in 0..(this.Features - 1) do
-                Model.trainFeature data userFeatures ratings estimates this.Features feature
+            for epoch = 0 to (epochs - 1) do
+                for rating in ratings do
+                    let predicted = Model.predictRatingWithKnown estimates.[rating.Key] data.[rating.Key] userFeatures this.Features 0
+                    let error = rating.Value - predicted
+                    for feature in 0..(this.Features - 1) do
+                        let movieFeature = data.[rating.Key].[feature]
+                        let userFeature = userFeatures.[feature]
+                        userFeatures.[feature] <- userFeature + (learningRate * (error * movieFeature - regularization * userFeature))
             // userFeatures is now features vector for this user
             clampedDot estimates.[target] data.[target] userFeatures
 
@@ -210,6 +216,12 @@ module FunkSVD =
                 seen.Add(rating.Key) |> ignore
             for feature in 0..(this.Features - 1) do
                 Model.trainFeature data userFeatures ratings estimates this.Features feature
+#if DEBUG
+            // check the rmse
+            let trained = ratings |> Array.map (fun rating -> (rating.Value, clampedDot estimates.[rating.Key] data.[rating.Key] userFeatures))
+            let errorSum = trained |> Array.fold (fun error (real, predicted) -> error + ((real - predicted) * (real - predicted))) 0.0
+            let rmse = sqrt(errorSum / float(trained.Length))
+#endif
             // userFeatures is now features vector for this user
             for i = 0 to (estimates.Length - 1) do
                 if seen.Contains(i) then
