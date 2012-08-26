@@ -13,7 +13,7 @@ module FunkSVD =
     let learningRate = 0.001
     let epochs = 75
     let regularization = 0.015
-    let minimumImprovement = 0.0001
+    let minimumImprovement = 0.000001
     let minimumPredictImprovement = 0.001
 
     type Rating =
@@ -109,6 +109,13 @@ module FunkSVD =
         |> (+) (float(features - feature - 1) * defaultFeature * defaultFeature)
         |> clamp
 
+    let predictRatingWithKnown score (movieFeatures : float array) (userFeatures : float array) features feature =
+        let mutable predicted = clamp(score + movieFeatures.[feature] * userFeatures.[feature])
+        // add trailing
+        for i = feature + 1 to features - 1 do
+            predicted <- clamp (predicted + movieFeatures.[i] * userFeatures.[i])
+        predicted
+
     let predictRating score movieFeature userFeature =
         clamp (score + movieFeature * userFeature)
 
@@ -136,11 +143,25 @@ module FunkSVD =
     let buildAsync (baseline : Rating array -> Estimates) (ratings : Rating array) features =
         let estimates = baseline ratings
         let movieFeatures, userFeatures = initializeFeatures estimates.MovieCount estimates.UserCount features
-        let cache = (ratings, estimates.Predicted) ||> Array.map2 (fun rating estimate -> RatingCache(rating, estimate)) |> ref
-        let progressMeter = FactorizationProgress(features)
+        let caches = (ratings, estimates.Predicted) ||> Array.map2 (fun rating estimate -> RatingCache(rating, estimate))
+        let progressMeter = FactorizationProgress(epochs)
         let task = Task.Factory.StartNew((fun _ ->
-            for i in 0..(features-1) do
-                trainFeature movieFeatures userFeatures !cache features i
+            let mutable epoch = 0
+            let mutable rmse, lastRmse = (0.0, infinity)
+            while (epoch < epochs) && (rmse <= lastRmse - minimumImprovement) do
+                lastRmse <- rmse
+                let mutable squaredError = 0.0
+                for cache in caches do
+                    let predicted = predictRatingWithKnown cache.Estimate movieFeatures.[cache.Rating.Title] userFeatures.[cache.Rating.User] features 0
+                    let error = cache.Rating.Score - predicted
+                    squaredError <- squaredError + (error * error)
+                    for feature in 0..(features-1) do
+                        let movieFeature = movieFeatures.[cache.Rating.Title].[feature]
+                        let userFeature = userFeatures.[cache.Rating.User].[feature]
+                        movieFeatures.[cache.Rating.Title].[feature] <- movieFeature + (learningRate * (error * userFeature - regularization * movieFeature))
+                        userFeatures.[cache.Rating.User].[feature] <- userFeature + (learningRate * (error * movieFeature - regularization * userFeature))
+                rmse <- sqrt(squaredError / float(caches.Length))
+                epoch <- epoch + 1
                 progressMeter.PostProgress()
             let featureAvgs = userFeatures |> Array.reduce (Array.map2 (+)) |> Array.map (fun x -> x / float(userFeatures.Length))
             (movieFeatures, featureAvgs)))
@@ -165,19 +186,12 @@ module FunkSVD =
                 a.[y] <- tmp
             Array.iteri (fun i _ -> swap ar i (rand.Next(i, Array.length ar))) ar
 
-        static member predictRatingWithKnown score (movieFeatures : float array) (userFeatures : float array) features feature =
-            let mutable predicted = clamp(score + movieFeatures.[feature] * userFeatures.[feature])
-            // add trailing
-            for i = feature + 1 to features - 1 do
-                predicted <- clamp (predicted + movieFeatures.[i] * userFeatures.[i])
-            predicted
-
         static member trainFeature (data : float[][]) (userFeatures : float[]) (ratings : pair<int,float> array) (estimates : float array) features feature =
             for epoch = 0 to (epochs - 1) do
                 for rating in ratings do
                     let movieFeature = data.[rating.Key].[feature]
                     let userFeature = userFeatures.[feature]
-                    let predicted = Model.predictRatingWithKnown estimates.[rating.Key] data.[rating.Key] userFeatures features feature
+                    let predicted = predictRatingWithKnown estimates.[rating.Key] data.[rating.Key] userFeatures features feature
                     let error = rating.Value - predicted
                     userFeatures.[feature] <- userFeature + (learningRate * (error * movieFeature - regularization * userFeature))
                 // update estimates
@@ -203,7 +217,7 @@ module FunkSVD =
             for epoch = 0 to (epochs - 1) do
                 shuffle ratings
                 for rating in ratings do
-                    let predicted = Model.predictRatingWithKnown estimates.[rating.Key] data.[rating.Key] userFeatures this.Features 0
+                    let predicted = predictRatingWithKnown estimates.[rating.Key] data.[rating.Key] userFeatures this.Features 0
                     let error = rating.Value - predicted
                     for feature in 0..(this.Features - 1) do
                         let movieFeature = data.[rating.Key].[feature]
